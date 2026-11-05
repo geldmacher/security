@@ -20,7 +20,7 @@ import { checkLinks } from "./check-links.mjs";
 import { openCodeCommand, OPENCODE_COMPATIBILITY } from "../skills/install-new-release-from-repo/scripts/opencode-config.mjs";
 import { validateAgentPlugin, validateCodexPlugin, validateOpenCodePackage, validatePlugin } from "./validate-plugin.mjs";
 
-import { portableSkills, codexAdapterSkill, opencodeAdapterSkill } from "./plugin-components.mjs";
+import { portableSkills, openCodePortableSkills, releaseInstallerSkill, openCodeReleaseInstallerSkill, codexAdapterSkill, opencodeAdapterSkill } from "./plugin-components.mjs";
 
 export { OPENCODE_COMPATIBILITY, openCodeCommand };
 
@@ -39,7 +39,7 @@ const allowed = {
   "agent-plugins": ["plugin.json", "schemas/agent-plugins", "README.md", ...commonFiles],
   cursor: [".cursor-plugin", "agents", "commands", "rules", "README.md", ...commonFiles],
   codex: [".codex-plugin", "README.md", ...commonFiles],
-  opencode: commonFiles,
+  opencode: commonFiles.filter((path) => path !== `skills/${releaseInstallerSkill}`),
 };
 const developmentRoots = [".agents", ".build", ".cursor", ".git", "adapters", "node_modules", "targets", "test", "tests"];
 
@@ -233,7 +233,7 @@ export function validateBuiltTarget(destination, target, version) {
     assertSkills(destination, "skills", [...portableSkills, codexAdapterSkill], "Codex");
   } else if (target === "opencode") {
     if (existsSync(join(destination, "plugin.json"))) throw new Error("opencode target contains the portable root manifest");
-    assertSkills(destination, "skills", [...portableSkills, opencodeAdapterSkill], "OpenCode");
+    assertSkills(destination, "skills", [...openCodePortableSkills, opencodeAdapterSkill], "OpenCode");
     if (manifest.skills !== "./skills/") throw new Error("OpenCode target skill path drifted from ./skills/");
     if (manifest.opencodeCompatibility !== OPENCODE_COMPATIBILITY) throw new Error(`OpenCode package must target OpenCode ${OPENCODE_COMPATIBILITY}`);
   } else throw new Error(`unsupported target: ${target}`);
@@ -293,10 +293,15 @@ export function buildPluginTargets(outputRoot, sourceRoot = defaultRoot) {
     }
     if (target === "opencode") {
       copyMapped(projectRoot, destination, "targets/opencode/.opencode-plugin", ".opencode-plugin");
+      const installerSource = `skills/${releaseInstallerSkill}`;
+      const installerTarget = `skills/${openCodeReleaseInstallerSkill}`;
+      copyMapped(projectRoot, destination, installerSource, installerTarget);
+      copyMapped(projectRoot, destination, `${installerSource}/SKILL.md`, `${installerTarget}/SKILL.md`,
+        (text) => text.replace(`\nname: ${releaseInstallerSkill}\n`, `\nname: ${openCodeReleaseInstallerSkill}\n`));
       copyMapped(projectRoot, destination, "targets/opencode/README.md", "README.md", (text) => text.replaceAll("../../docs/", "docs/").replaceAll("../../skills/", "skills/"));
       copyMapped(projectRoot, destination, opencodeAdapterSource, `skills/${opencodeAdapterSkill}`);
       const commandSkills = [
-        ...portableSkills.map((name) => [name, join(projectRoot, "skills", name, "SKILL.md")]),
+        ...openCodePortableSkills.map((name) => [name, join(destination, "skills", name, "SKILL.md")]),
         [opencodeAdapterSkill, join(projectRoot, opencodeAdapterSource, "SKILL.md")],
       ];
       for (const [name, skillFile] of commandSkills) {

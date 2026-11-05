@@ -16,7 +16,7 @@ import addFormats from "ajv-formats";
 import { parseDocument } from "yaml";
 
 import { OPENCODE_COMPATIBILITY, openCodeCommand } from "../skills/install-new-release-from-repo/scripts/opencode-config.mjs";
-import { portableSkills, codexAdapterSkill, opencodeAdapterSkill } from "./plugin-components.mjs";
+import { portableSkills, openCodePortableSkills, codexAdapterSkill, opencodeAdapterSkill } from "./plugin-components.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 export const defaultRoot = dirname(scriptDirectory);
@@ -634,7 +634,7 @@ export function validateOpenCodePackage(root) {
   if (!existsSync(commandsDir)) failures.push("OpenCode commands directory is missing");
   else {
     const commands = readdirSync(commandsDir).sort();
-    const packageSkills = [...portableSkills];
+    const packageSkills = [...openCodePortableSkills];
     if (existsSync(join(rootPath, "skills", opencodeAdapterSkill, "SKILL.md"))) packageSkills.push(opencodeAdapterSkill);
     const expected = [...new Set(packageSkills)].map((name) => `${name}.md`).sort();
     if (JSON.stringify(commands) !== JSON.stringify(expected)) failures.push(`OpenCode command inventory differs: ${commands.join(", ")}`);
@@ -649,7 +649,9 @@ export function validateOpenCodePackage(root) {
         failures.push(`${name}: OpenCode skill must stay auto-invocable and must not use removed slash metadata`);
       }
       const document = parseDocument(text.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1] ?? "");
-      const description = document.toJS()?.description;
+      const metadata = document.toJS();
+      if (metadata?.name !== name) failures.push(`${name}: OpenCode skill name must match its directory`);
+      const description = metadata?.description;
       if (typeof description === "string" && readFileSync(join(commandsDir, `${name}.md`), "utf8") !== openCodeCommand(name, description)) {
         failures.push(`${name}: OpenCode command must load the skill by id`);
       }

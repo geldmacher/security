@@ -6,7 +6,7 @@ Security reviews a diff, the affected code, or a repository in OpenCode 2.1.2. Q
 
 This package targets [OpenCode 2.1.2](https://opencode.ai/changelog) only (`npm` package `@opencode/cli`). The `opencode-ai` package remains OpenCode 1.x and is not supported. Skill discovery follows the [OpenCode 2.1 skills guide](https://opencode.ai/v2/docs/skills/). Slash commands follow the [commands guide](https://opencode.ai/v2/docs/commands/).
 
-OpenCode config (opencode.json, commands/) is shared with Workflow and Design: merge only, touch only your own entries, never write backups; uninstall removes only your own entries; rollback means installing an older GitHub release.
+OpenCode configuration and commands are shared. Merge only this plugin's entries and preserve all unrelated settings, skill paths, and commands. Keep originals in memory for recovery within the same run. Uninstall removes only this plugin's entries and package. Roll back by installing an older GitHub release.
 
 ## Install or update from a release
 
@@ -20,9 +20,9 @@ Use the [latest stable GitHub Release](https://github.com/geldmacher/security/re
 
 **Update with your agent:**
 
-> @install-new-release-from-repo Update Security to the latest stable GitHub Release for OpenCode.
+> @security-install-release Update Security to the latest stable GitHub Release for OpenCode.
 
-`/install-new-release-from-repo` sends the same request. Start a new OpenCode session after installation. The [installation guide](../../docs/installation.md) covers recovery.
+`/security-install-release` sends the same request. Start a new OpenCode session after installation. The [installation guide](../../docs/installation.md) covers recovery.
 
 ## How skills are selected
 
@@ -32,7 +32,7 @@ OpenCode lists each skill that has a description. Model auto-invocation stays en
 - Type `/security` to run the matching command, which loads the same skill.
 - Type `@security-audit` or `/security-audit` for the full six-phase audit.
 
-The same pair works for `install-new-release-from-repo` and `security-guard-setup`.
+The same pair works for `security-install-release` and `security-guard-setup`.
 
 Try a quick review:
 

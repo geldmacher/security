@@ -7,7 +7,7 @@ description: Check, preview, configure, or remove Security's persistent guard in
 
 Read [the canonical security guard](references/security-guard.md). Use this skill only for persistent OpenCode guidance. Cursor loads the equivalent rule directly. Codex uses its own setup skill. A one-off security question does not need this setup. Status and preview requests are read-only.
 
-OpenCode config (opencode.json, commands/) is shared with Workflow and Design: merge only, touch only your own entries, never write backups; uninstall removes only your own entries; rollback means installing an older GitHub release. This setup does not modify `opencode.json`, `opencode.jsonc`, or command files.
+This setup does not modify `opencode.json`, `opencode.jsonc`, or command files.
 
 ## Resolve the files
 

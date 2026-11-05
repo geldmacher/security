@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.2.0
+
+- Use `/security-install-release` or `@security-install-release` to update in OpenCode. Give commands an ownership marker and preserve unrelated files during deploy and uninstall.
+- Describe shared OpenCode configuration without naming other plugins.
+
 ## 0.1.0 - 2026-11-05
 
 ### Fixed

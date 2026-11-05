@@ -1,6 +1,6 @@
 {
   "name": "geldmacher-security",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Reviews code for issues that can be abused in this system, and says when reachability is still unknown. For OpenCode 2.1.2.",
   "author": {
     "name": "Dennis Geldmacher",
