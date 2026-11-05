@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ## 0.1.0 - 2026-11-05
 
+### Fixed
+
+- Reject duplicate reachability statements and run report validation when the script is invoked through a symlink.
+- Derive review and audit summaries from the validated final findings.
+
 ### Added
 
 - Initial Security plugin for Cursor, Codex, and OpenCode 2.1.2.

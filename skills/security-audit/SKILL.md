@@ -11,4 +11,4 @@ Scope is the repository, or the paths the user names. Do not probe production sy
 
 Use the read-only `security-auditor` to try to disprove each candidate. In Cursor, use that agent. In Codex or OpenCode, delegate a read-only pass with the auditor reference as its instructions. If delegation is unavailable, do the refutation in the current session and label it as not independent. A finding stays `confirmed` only if that pass does not disprove it. Do not round `needs_validation` up to `confirmed`.
 
-Write `findings.json` and `security-summary.md`, then validate the JSON with [the report script](../security/scripts/validate-report.mjs) before treating the report as done. State what was not checked and the confidence of the run.
+Validate the final `findings.json` with [the report script](../security/scripts/validate-report.mjs), then derive `security-summary.md` from those records. State what was not checked and the confidence of the run.

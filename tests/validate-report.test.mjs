@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { buildPluginTargets } from "../scripts/build-plugin-targets.mjs";
 import { defaultRoot } from "../scripts/validate-plugin.mjs";
 import { validateReport } from "../scripts/validate-report.mjs";
 
@@ -110,6 +111,44 @@ test("the report CLI rejects invalid JSON and accepts a validated file", () => {
     const linked = spawnSync(process.execPath, ["scripts/validate-report.mjs", link], { cwd: defaultRoot, encoding: "utf8" });
     assert.equal(linked.status, 1);
     assert.match(linked.stderr, /regular file/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("the packaged report CLI requires one reachability statement for each verdict", () => {
+  const directory = mkdtempSync(join(tmpdir(), "security-packaged-report-"));
+  try {
+    const { codex } = buildPluginTargets(join(directory, "packages"));
+    const validator = realpathSync(join(codex.path, "skills/security/scripts/validate-report.mjs"));
+    const report = join(directory, "findings.json");
+    const findings = [confirmed(), needsValidation(), rejected()];
+    const validate = (script = validator) => {
+      writeFileSync(report, JSON.stringify(findings));
+      return spawnSync(process.execPath, [script, report], { cwd: directory, encoding: "utf8" });
+    };
+
+    const valid = validate();
+    assert.equal(valid.status, 0, valid.stderr);
+    assert.match(valid.stdout, /PASS: 3 findings valid/);
+
+    const original = findings[2].description;
+    for (const extra of [
+      "Reachability: reachable — The public route concatenates the input.",
+      original.split("\n").at(-1),
+      "Reachability: status unclear",
+    ]) {
+      findings[2].description = `${original}\n${extra}`;
+      const invalid = validate();
+      assert.equal(invalid.status, 1, `Accepted an extra line: ${extra}`);
+      assert.match(invalid.stderr, /exactly one Reachability line/);
+    }
+
+    const alias = join(directory, "validate-report.mjs");
+    symlinkSync(validator, alias);
+    const invalidThroughAlias = validate(alias);
+    assert.equal(invalidThroughAlias.status, 1);
+    assert.match(invalidThroughAlias.stderr, /exactly one Reachability line/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

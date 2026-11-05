@@ -26,4 +26,4 @@ Reachability: not_reachable — <what blocks it>
 Reachability: insufficient — <the exact missing fact>
 ```
 
-Use one Reachability line. `confirmed` uses `reachable`. `rejected` uses `not_reachable`. `needs_validation` uses `insufficient`. `scripts/validate-report.mjs` rejects any other pairing, and it rejects JSON that does not satisfy `report-schema.json`. The readable summary must use the same verdicts and must not add a confirmed finding that is absent from the JSON.
+Use exactly one line starting with `Reachability:`. `confirmed` uses `reachable`. `rejected` uses `not_reachable`. `needs_validation` uses `insufficient`. `scripts/validate-report.mjs` rejects multiple Reachability lines, other verdict pairings, and JSON that does not satisfy `report-schema.json`. Derive the readable summary from the validated records and use the same verdicts.

@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { lstatSync, readFileSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -27,7 +27,9 @@ export function validateReport(findings, reportSchema = schema) {
       errors.push(`#${index}: description must contain "Abuse path: " followed by how the issue is abused`);
     }
     const match = description.match(reachabilityPattern);
-    if (!match) {
+    if ((description.match(/^Reachability:/gm)?.length ?? 0) > 1) {
+      errors.push(`#${index}: description must contain exactly one Reachability line`);
+    } else if (!match) {
       errors.push(`#${index}: description must contain "Reachability: reachable|not_reachable|insufficient — " and the reason`);
     } else if (expectedReachability[finding.verdict] && match[1] !== expectedReachability[finding.verdict]) {
       errors.push(`#${index}: verdict ${finding.verdict} requires Reachability: ${expectedReachability[finding.verdict]} (do not round needs_validation up to confirmed); got ${match[1]}`);
@@ -70,10 +72,23 @@ export function validateReportFile(file) {
   return 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  if (!process.argv[2]) {
-    process.stderr.write("Usage: node skills/security/scripts/validate-report.mjs <findings.json>\n");
-    process.exit(1);
+export function runReportCli(moduleUrl, usagePath) {
+  const entrypoint = process.argv[1];
+  if (!entrypoint) return;
+  const modulePath = fileURLToPath(moduleUrl);
+  if (resolve(entrypoint) !== modulePath) {
+    try {
+      if (realpathSync(entrypoint) !== modulePath) return;
+    } catch {
+      return;
+    }
   }
-  process.exit(validateReportFile(process.argv[2]));
+  if (!process.argv[2]) {
+    process.stderr.write(`Usage: node ${usagePath} <findings.json>\n`);
+    process.exitCode = 1;
+    return;
+  }
+  process.exitCode = validateReportFile(process.argv[2]);
 }
+
+runReportCli(import.meta.url, "skills/security/scripts/validate-report.mjs");

@@ -72,7 +72,7 @@ $geldmacher-security:security Review the current diff and the modules it affects
 @security Review the current diff and the modules it affects. Use review intensity. Run scanners only if they are already available.
 ```
 
-The scanners are `composer audit`, `npm audit`, `pnpm audit`, `pip-audit`, `gitleaks`, `semgrep`, and `osv-scanner`. A missing scanner is listed under what was not checked. Scanner output is deduplicated and still has to pass the reachability standard. The agent writes `findings.json` and `security-summary.md` outside the repository and validates the JSON before treating the report as done. It does not install a scanner globally unless you agree, and it does not add the scanner as a project dependency.
+The scanners are `composer audit`, `npm audit`, `pnpm audit`, `pip-audit`, `gitleaks`, `semgrep`, and `osv-scanner`. A missing scanner is listed under what was not checked. Scanner output is deduplicated and still has to pass the reachability standard. The agent writes `findings.json` outside the repository, validates it, and uses the validated records to write `security-summary.md`. It does not install a scanner globally unless you agree, and it does not add the scanner as a project dependency.
 
 ## Audit
 
@@ -100,7 +100,7 @@ $geldmacher-security:security-audit Audit this repository. Do not probe producti
 
 A named scope is the same request with the paths added, for example `Audit src/auth and its callers.` The report says what was left outside that scope. The pass does not probe production or other live shared systems. It does not execute repository code unless a sandbox with the controls in the vendored method is available. This plugin does not provide that sandbox, so blocked execution stays `needs_validation`.
 
-The audit writes `findings.json` and `security-summary.md`, validates the JSON, and validates a coverage ledger when it writes one. Only findings the adversarial pass does not disprove stay `confirmed`.
+The audit validates the final `findings.json` before writing `security-summary.md`. It also validates the coverage ledger when it writes one. Only findings the adversarial pass does not disprove stay `confirmed`.
 
 ## Make the guard persistent
 

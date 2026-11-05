@@ -16,7 +16,7 @@ Do not execute the target project's code, tests, or build. This plugin does not 
 
 Deduplicate scanner output with manual findings by root cause. A scanner result still has to pass the finding standard. Unreachable or already-mitigated hits are `rejected` or `needs_validation`, not `confirmed`.
 
-Write `findings.json` and `security-summary.md` outside the target repository, under `~/security-reports/<repo-name>/`, unless the user names another directory. Validate the JSON with the report script before calling the report done. The summary states what was not checked and the confidence.
+Write `findings.json` outside the target repository, under `~/security-reports/<repo-name>/`, unless the user names another directory. Validate the JSON with the report script. Once it passes, derive `security-summary.md` from those records in the same directory. The summary states what was not checked and the confidence.
 
 ## Audit
 
@@ -29,7 +29,7 @@ Follow the six phases in [the vendored Cloudflare skill](SKILL.md):
 3. Candidate validation — [VALIDATION-AND-REPORTING.md](VALIDATION-AND-REPORTING.md)
 4. Structured output — `findings.json`, checked with `validate-findings.cjs` through [the report script](../scripts/validate-report.mjs), and `coverage-ledger.json` checked with [validate-coverage-ledger.cjs](validate-coverage-ledger.cjs)
 5. Independent record verification — a fresh pass using [auditor.md](auditor.md)
-6. The readable summary, derived from the validated records
+6. Validate the final records again if verification changed them, then derive the readable summary from those records
 
 Scope is the repository, or the paths the user names. A scoped run says what was left out. Do not probe production systems, shared infrastructure, or live control planes. Do not execute target code without the sandbox described in the vendored skill. If that sandbox is not available, keep the blocked lead at `needs_validation`.
 
