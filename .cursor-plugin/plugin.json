@@ -1,0 +1,39 @@
+{
+  "name": "geldmacher-security",
+  "displayName": "Security",
+  "description": "Reviews code for issues that can be abused in this system, and says when reachability is still unknown.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Dennis Geldmacher",
+    "email": "geldmacher.dennis@outlook.de"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/geldmacher/security",
+  "repository": "https://github.com/geldmacher/security",
+  "category": "developer-tools",
+  "keywords": [
+    "security",
+    "audit",
+    "review",
+    "dependencies",
+    "authentication",
+    "coding-agents",
+    "cursor",
+    "codex"
+  ],
+  "tags": [
+    "security",
+    "audit",
+    "review",
+    "authentication"
+  ],
+  "logo": "assets/logo.svg",
+  "commands": "./commands/",
+  "agents": "./agents/",
+  "skills": [
+    "./skills/install-new-release-from-repo/SKILL.md",
+    "./skills/security/SKILL.md",
+    "./skills/security-audit/SKILL.md"
+  ],
+  "rules": "./rules/"
+}

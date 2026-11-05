@@ -1,0 +1,28 @@
+{
+  "name": "geldmacher-security-plugin-development",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Development validation for the Geldmacher Security Agent Plugins, Cursor, Codex, and OpenCode targets.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build:targets": "node scripts/build-plugin-targets.mjs",
+    "check:targets": "node scripts/build-plugin-targets.mjs --check",
+    "deploy:prepare": "npm run build:targets && npm run validate",
+    "deploy:status": "node scripts/local-plugin-deploy.mjs status",
+    "deploy:local": "node scripts/local-plugin-deploy.mjs deploy",
+    "deploy:uninstall": "node scripts/local-plugin-deploy.mjs uninstall --opencode-only",
+    "release:plugin": "node scripts/plugin-github-release.mjs",
+    "validate": "node scripts/validate-plugin.mjs",
+    "check:links": "node scripts/check-links.mjs",
+    "test": "node --test tests/*.test.mjs skills/security/references/*.test.cjs",
+    "release-check": "npm run check:targets && npm run validate && npm run check:links && npm test"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "jsonc-parser": "3.3.1",
+    "yaml": "^2.8.1"
+  }
+}

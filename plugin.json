@@ -1,0 +1,24 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "geldmacher-security",
+  "version": "0.1.0",
+  "description": "Reviews code for issues that can be abused in this system, and says when reachability is still unknown.",
+  "author": {
+    "name": "Dennis Geldmacher",
+    "email": "geldmacher.dennis@outlook.de",
+    "url": "https://github.com/geldmacher"
+  },
+  "homepage": "https://github.com/geldmacher/security",
+  "repository": "https://github.com/geldmacher/security",
+  "license": "MIT",
+  "keywords": [
+    "security",
+    "audit",
+    "review",
+    "dependencies",
+    "authentication",
+    "coding-agents",
+    "cursor",
+    "codex"
+  ]
+}
