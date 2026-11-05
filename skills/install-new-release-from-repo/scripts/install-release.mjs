@@ -1,0 +1,316 @@
+#!/usr/bin/env node
+import { randomUUID } from "node:crypto";
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { PLUGIN_NAME, EXPECTED_REPOSITORY, RELEASE_HOSTS, assetName, canonicalJson, receiptForProvenance, sha256, validateProvenance } from "./release-format.mjs";
+import { releaseManifestPath, verifyArchive } from "./release-archive.mjs";
+import { applyOpenCodeChanges, commandSourcesFromEntries, planOpenCodeChanges, rollbackOpenCodeChanges } from "./opencode-config.mjs";
+import { assertPath, present, sameTree, marketplaceDocument, defaultRunner, codexList, cacheState, installCodex } from "./codex-install.mjs";
+export { marketplaceDocument } from "./codex-install.mjs";
+
+const stableVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+const manifestPath = releaseManifestPath;
+const json = (path) => JSON.parse(readFileSync(path, "utf8"));
+
+function destinationFor(home, host) {
+  if (host === "cursor") return join(home, ".cursor", "plugins", "local", PLUGIN_NAME);
+  if (host === "codex") return join(home, ".codex", "plugins", PLUGIN_NAME);
+  return join(home, ".config", "opencode", PLUGIN_NAME);
+}
+
+function assertHost(host) {
+  if (!RELEASE_HOSTS.includes(host)) throw new Error("Choose the invoking harness explicitly: --host cursor, --host codex, or --host opencode");
+}
+
+function regularFile(path) {
+  if (!lstatSync(path).isFile() || lstatSync(path).isSymbolicLink()) throw new Error(`Expected regular file: ${path}`);
+  return readFileSync(path);
+}
+
+export function verifyRelease(directory, host, expectedVersion) {
+  assertHost(host);
+  const sums = regularFile(join(directory, "SHA256SUMS")).toString("utf8").split(/\r?\n/).filter(Boolean);
+  const checked = (name) => {
+    const matches = sums.map((line) => line.match(/^([0-9a-f]{64})  (.+)$/)).filter((match) => match?.[2] === name);
+    if (matches.length !== 1) throw new Error(`SHA256SUMS must contain exactly one entry for ${name}`);
+    const bytes = regularFile(join(directory, name));
+    if (sha256(bytes) !== matches[0][1]) throw new Error(`SHA-256 mismatch for ${name}`);
+    return bytes;
+  };
+  const provenance = JSON.parse(checked("provenance.json").toString("utf8"));
+  validateProvenance(provenance);
+  if (provenance.repository !== EXPECTED_REPOSITORY || !stableVersion.test(provenance.version)
+    || (expectedVersion && provenance.version !== expectedVersion)
+    || receiptForProvenance(provenance) !== provenance.receipt_sha256) throw new Error("Release identity or receipt differs");
+  const archive = assetName(host, provenance.version);
+  const zip = checked(archive);
+  if (sha256(zip) !== provenance.targets[host].archive_sha256) throw new Error("Archive differs from provenance");
+  const entries = verifyArchive(zip, provenance, host);
+  return { provenance, archive, entries, directory, host };
+}
+
+async function downloadBytes(url, limit, fetcher) {
+  const response = await fetcher(url, {
+    headers: { "User-Agent": "geldmacher-security-release-installer", Accept: "application/vnd.github+json" },
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!response.ok) throw new Error(`GitHub download failed (${response.status}) for ${url}`);
+  if (Number(response.headers.get("content-length")) > limit) throw new Error("Download exceeds size limit");
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of response.body) {
+    size += chunk.length;
+    if (size > limit) throw new Error("Download exceeds size limit");
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+export async function downloadLatest(directory, host, fetcher = fetch) {
+  assertHost(host);
+  const release = JSON.parse((await downloadBytes(`https://api.github.com/repos/${EXPECTED_REPOSITORY}/releases/latest`, 2 * 1024 * 1024, fetcher)).toString("utf8"));
+  const version = release.tag_name?.slice(1);
+  if (release.draft !== false || release.prerelease !== false || !stableVersion.test(version ?? "")
+    || release.tag_name !== `v${version}` || !Array.isArray(release.assets)) throw new Error("GitHub latest must identify a published stable release");
+  const names = [assetName(host, version), "SHA256SUMS", "provenance.json"];
+  for (const name of names) {
+    const matches = release.assets.filter((asset) => asset.name === name);
+    const url = `https://github.com/${EXPECTED_REPOSITORY}/releases/download/v${version}/${name}`;
+    if (matches.length !== 1 || matches[0].browser_download_url !== url) throw new Error(`Missing or conflicting GitHub asset: ${name}`);
+    const bytes = await downloadBytes(url, name.endsWith(".zip") ? 64 * 1024 * 1024 : 2 * 1024 * 1024, fetcher);
+    writeFileSync(join(directory, name), bytes, { flag: "wx" });
+  }
+  return verifyRelease(directory, host, version);
+}
+
+function atomicWrite(path, bytes) {
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try { writeFileSync(temporary, bytes, { flag: "wx" }); renameSync(temporary, path); }
+  finally { rmSync(temporary, { force: true }); }
+}
+
+function sameFile(path, bytes) {
+  return bytes === null ? !present(path) : present(path) && regularFile(path).equals(bytes);
+}
+
+function newer(installed, selected) {
+  const a = installed.split(/[.+-]/).slice(0, 3).map(BigInt);
+  const b = selected.split(".").map(BigInt);
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
+  return false;
+}
+
+export function installRelease(release, { home = homedir(), codexHome, codexBinary = "codex", dryRun = false, replaceExisting = false, runner = defaultRunner, env = process.env } = {}) {
+  const { host, provenance, entries } = release;
+  assertHost(host);
+  home = realpathSync(home);
+  const isolated = home !== realpathSync(homedir());
+  codexHome = resolve(codexHome || (isolated ? join(home, ".codex") : process.env.CODEX_HOME || join(home, ".codex")));
+  if (isolated && host === "codex" && runner === defaultRunner) {
+    if (!isAbsolute(codexBinary)) throw new Error("An isolated Codex drive requires --codex-bin inside --home");
+    codexBinary = realpathSync(codexBinary);
+    assertPath(home, codexBinary);
+    if (!regularFile(codexBinary)) throw new Error("Missing isolated Codex driver");
+  }
+  const destination = destinationFor(home, host);
+  const parent = dirname(destination);
+  const state = join(parent, `.${PLUGIN_NAME}.release`);
+  const lock = join(parent, `.${PLUGIN_NAME}.install-lock`);
+  const marketplacePath = join(home, ".agents", "plugins", "marketplace.json");
+  for (const path of [destination, state, lock, ...(host === "codex" ? [marketplacePath] : [])]) assertPath(home, path);
+  if (present(lock)) throw new Error(`Another installation or interrupted run owns ${lock}; inspect it before retrying`);
+  let locked = false;
+  let stage;
+  let sourceReplaced = false;
+  let previousPluginRemoved = false;
+  let evidenceReplaced = false;
+  let marketplaceWritten = false;
+  let nativeAttempted = false;
+  let original = null;
+  let marketplace;
+  let opencodePlan = null;
+  const opencodeApplied = {};
+  try {
+    if (!dryRun) {
+      mkdirSync(parent, { recursive: true });
+      mkdirSync(lock);
+      locked = true;
+      writeFileSync(join(lock, "owner.json"), canonicalJson({ pid: process.pid, version: provenance.version, host }));
+    }
+    const exists = present(destination);
+    const matches = exists && sameTree(destination, entries);
+    let replacementReason = null;
+    let previousVersion = null;
+    if (exists) {
+      const old = json(join(destination, manifestPath(host)));
+      previousVersion = old.version;
+      if (old.name !== PLUGIN_NAME || !/^\d+\.\d+\.\d+(?:[-+].+)?$/.test(old.version ?? "")) throw new Error("Existing directory is not a recognized Security installation");
+      if (!matches && !replaceExisting) {
+        if (newer(old.version, provenance.version)) replacementReason = "Installed version is newer";
+        else if (!present(state)) replacementReason = "Existing installation has no retained release evidence";
+        else {
+          const prior = verifyRelease(state, host, old.version);
+          if (!sameTree(destination, prior.entries)) replacementReason = "Installed files were locally modified";
+        }
+        if (replacementReason && !dryRun) throw new Error(`${replacementReason}; preview and explicitly approve --replace-existing`);
+      }
+    } else if (present(state)) throw new Error("Release evidence exists without its installation; inspect interrupted state before retrying");
+    let installed;
+    let cache = null;
+    if (host === "codex") {
+      original = present(marketplacePath) ? regularFile(marketplacePath) : null;
+      marketplace = marketplaceDocument(original, "./.codex/plugins/geldmacher-security");
+      installed = codexList(codexBinary, runner);
+      if (installed) cache = cacheState(installed, marketplace.name, destination, codexHome, { version: provenance.version, entries });
+    }
+    const marketplaceChange = marketplace && !sameFile(marketplacePath, marketplace.bytes);
+    if (host === "opencode") {
+      opencodePlan = planOpenCodeChanges({ home, plugin: PLUGIN_NAME, commandSources: commandSourcesFromEntries(entries), env });
+    }
+    const opencodeChange = Boolean(opencodePlan && (opencodePlan.config.change || opencodePlan.commands.change));
+    const report = {
+      plugin: PLUGIN_NAME, host, version: provenance.version, previous_version: previousVersion, tag: provenance.tag,
+      repository: EXPECTED_REPOSITORY, destination, dry_run: dryRun,
+      source_changed: !matches, marketplace_changed: Boolean(marketplaceChange),
+      opencode_config_changed: Boolean(opencodePlan?.config.change),
+      opencode_commands_changed: Boolean(opencodePlan?.commands.change),
+      native_installation: host === "codex" ? cache?.current ? "verified" : "pending" : "not_applicable",
+      activation: "unverified", replacement_requires_approval: replacementReason,
+    };
+    if (dryRun) return { ...report, status: "preview", next_step: replacementReason
+      ? "Ask the user to approve replacing this installation before adding --replace-existing. The previous directory is removed and is not retained; roll back by installing an older GitHub release."
+      : "Run the same command without --dry-run after resolving any reported prerequisites." };
+    if (!matches || marketplaceChange || opencodeChange) {
+      stage = mkdtempSync(join(parent, `.${PLUGIN_NAME}.stage-`));
+      const payload = join(stage, "plugin");
+      mkdirSync(payload);
+      for (const entry of entries) {
+        const path = join(payload, entry.relativePath);
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, entry.bytes, { flag: "wx", mode: entry.mode });
+        chmodSync(path, entry.mode);
+      }
+      if (!sameTree(payload, entries)) throw new Error("Staged installation differs from release");
+      const evidence = join(stage, "release");
+      mkdirSync(evidence);
+      for (const name of [release.archive, "SHA256SUMS", "provenance.json"]) cpSync(join(release.directory, name), join(evidence, name), { errorOnExist: true, force: false });
+      verifyRelease(evidence, host, provenance.version);
+      if (!matches) {
+        if (exists) { rmSync(destination, { recursive: true, force: true }); previousPluginRemoved = true; }
+        renameSync(payload, destination); sourceReplaced = true;
+        if (present(state)) rmSync(state, { recursive: true, force: true });
+        renameSync(evidence, state); evidenceReplaced = true;
+      }
+      if (marketplaceChange) {
+        if (!sameFile(marketplacePath, original)) throw new Error("Marketplace changed concurrently");
+        mkdirSync(dirname(marketplacePath), { recursive: true });
+        atomicWrite(marketplacePath, marketplace.bytes); marketplaceWritten = true;
+      }
+    }
+    if (opencodeChange) applyOpenCodeChanges(opencodePlan, opencodeApplied);
+    if (host === "codex" && installed && (!cache.current || marketplaceChange)) {
+      cache = installCodex({ binary: codexBinary, runner, marketplace: marketplace.name, home, source: destination, codexHome, version: provenance.version, entries });
+      nativeAttempted = true;
+    }
+    if (!sameTree(destination, entries)) throw new Error("Installed files differ from release");
+    if (marketplace && !sameFile(marketplacePath, marketplace.bytes)) throw new Error("Marketplace changed during installation");
+    if (host === "opencode") {
+      const verified = planOpenCodeChanges({ home, plugin: PLUGIN_NAME, commandSources: commandSourcesFromEntries(entries), env });
+      if (verified.config.change || verified.commands.change) throw new Error("OpenCode registration failed post-install verification");
+    }
+    const status = host === "codex" && !cache?.current ? "prepared" : "installed";
+    const noOp = matches && !marketplaceChange && !opencodeChange && (host !== "codex" || Boolean(cache?.current && !nativeAttempted));
+    return {
+      ...report, status, no_op: noOp,
+      native_installation: host === "codex" ? cache?.current ? "verified" : "manual_action_required" : "not_applicable",
+      cache: cache?.cache ?? null,
+      next_step: noOp ? "No installation files changed. No additional reload is needed for this run; live activation remains unverified until observed."
+        : host === "cursor"
+        ? "Reload Cursor, then confirm the skill in Customize. Local imports must be allowed and a same-name marketplace install must not take precedence."
+        : host === "opencode"
+          ? "Start a new OpenCode session and confirm @security and /security load the skill."
+          : cache?.current
+          ? "Restart the desktop app if needed, confirm the plugin is enabled, and start a new Codex task to verify skill discovery."
+          : "Codex CLI is unavailable. Fully restart the desktop app, open Plugins Directory, select your marketplace, install or refresh Security, verify the installed cache version, then start a new task.",
+    };
+  } catch (error) {
+    nativeAttempted ||= error.nativeAttempted === true;
+    const recovery = [];
+    const attempt = (label, fn) => { try { fn(); } catch (failure) { recovery.push(`${label}: ${failure.message}`); } };
+    if (marketplaceWritten) attempt("restore marketplace from memory", () => {
+      if (!sameFile(marketplacePath, marketplace.bytes)) throw new Error("Concurrent marketplace change preserved; restore manually");
+      if (original) atomicWrite(marketplacePath, original); else rmSync(marketplacePath);
+    });
+    if (opencodeApplied.writes?.length) attempt("restore opencode registration from memory", () => {
+      rollbackOpenCodeChanges(opencodeApplied, { home, plugin: PLUGIN_NAME });
+    });
+    const directoryChanged = previousPluginRemoved || sourceReplaced || evidenceReplaced;
+    const result = {
+      status: "failed", error: error.message,
+      plugin_directory_replaced: sourceReplaced,
+      previous_plugin_removed: previousPluginRemoved,
+      release_evidence_replaced: evidenceReplaced,
+      previous_install_retained: !directoryChanged,
+      recovery_errors: recovery,
+      native_installation: nativeAttempted ? "unverified_after_failure" : "not_changed",
+      next_step: directoryChanged
+        ? `The plugin directory was replaced and the previous copy was not retained. Reinstall an older GitHub release to recover it.${nativeAttempted ? " Native installation is unverified; reinstall through the native host and verify its cache. Do not delete caches manually." : ""}`
+        : nativeAttempted
+          ? "The previous installation was left in place. Native installation is unverified. Reinstall an older GitHub release if that cache must change, and do not delete caches manually."
+          : "The previous installation was left in place. Resolve the reported conflict or prerequisite before retrying.",
+    };
+    throw Object.assign(new Error(error.message), { result });
+  } finally {
+    if (stage) rmSync(stage, { recursive: true, force: true });
+    if (locked) rmSync(lock, { recursive: true });
+  }
+}
+
+export async function main(args) {
+  const options = {};
+  let releaseDirectory;
+  let downloadDirectory;
+  const values = { "--host": "host", "--home": "home", "--codex-bin": "codexBinary" };
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--help") {
+      process.stdout.write("Usage: node install-release.mjs --host cursor|codex|opencode [--dry-run] [--release-dir DIR] [--replace-existing]\nDownload and verify only: --host cursor|codex|opencode --download-dir NEW_DIR\nIsolation: --home DIR [--codex-bin /absolute/path/inside/home/driver.mjs]\nRequires Node.js >=22. Default: latest stable geldmacher/security release. No Git or npm install required.\n");
+      return;
+    }
+    if (arg === "--dry-run") options.dryRun = true;
+    else if (arg === "--replace-existing") options.replaceExisting = true;
+    else if (arg === "--release-dir" || arg === "--download-dir" || values[arg]) {
+      const value = args[++i];
+      if (!value || value.startsWith("--")) throw new Error(`Missing value for ${arg}`);
+      if (arg === "--release-dir") releaseDirectory = resolve(value);
+      else if (arg === "--download-dir") downloadDirectory = resolve(value);
+      else options[values[arg]] = value;
+    } else throw new Error(`Unsupported argument: ${arg}`);
+  }
+  assertHost(options.host);
+  if (Number(process.versions.node.split(".")[0]) < 22) throw new Error("Node.js 22 or newer is required");
+  if (downloadDirectory) {
+    if (releaseDirectory || options.dryRun || options.replaceExisting) throw new Error("--download-dir cannot be combined with --release-dir, --dry-run or --replace-existing");
+    mkdirSync(downloadDirectory);
+    try {
+      const release = await downloadLatest(downloadDirectory, options.host);
+      process.stdout.write(canonicalJson({ status: "downloaded_and_verified", version: release.provenance.version, host: options.host, directory: downloadDirectory }));
+    } catch (error) { rmSync(downloadDirectory, { recursive: true }); throw error; }
+    return;
+  }
+  const temporary = releaseDirectory ? null : mkdtempSync(join(tmpdir(), "security-release-download-"));
+  try {
+    const release = releaseDirectory ? verifyRelease(releaseDirectory, options.host) : await downloadLatest(temporary, options.host);
+    const report = installRelease(release, options);
+    process.stdout.write(canonicalJson(report));
+  } finally { if (temporary) rmSync(temporary, { recursive: true, force: true }); }
+}
+
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main(process.argv.slice(2)).catch((error) => {
+    process.stderr.write(canonicalJson(error.result ?? { status: "failed", error: error.message }));
+    process.exitCode = 1;
+  });
+}

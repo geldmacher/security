@@ -1,0 +1,44 @@
+{
+  "name": "geldmacher-security",
+  "version": "0.1.0",
+  "description": "Reviews code for issues that can be abused in this system, and says when reachability is still unknown.",
+  "author": {
+    "name": "Dennis Geldmacher",
+    "email": "geldmacher.dennis@outlook.de",
+    "url": "https://github.com/geldmacher"
+  },
+  "homepage": "https://github.com/geldmacher/security",
+  "repository": "https://github.com/geldmacher/security",
+  "license": "MIT",
+  "keywords": [
+    "security",
+    "audit",
+    "review",
+    "dependencies",
+    "authentication",
+    "coding-agents",
+    "cursor",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Security",
+    "shortDescription": "Find issues that can be abused in this system.",
+    "longDescription": "Security reviews a diff, the affected code, or a repository for issues that can actually be abused here. Quick is the default. Review adds data flow and available scanners. Audit runs the six-phase method and keeps a finding confirmed only after an adversarial pass fails to disprove it.",
+    "developerName": "Dennis Geldmacher",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/geldmacher/security",
+    "defaultPrompt": [
+      "Review the current diff for abusable issues.",
+      "Review this change and the modules it affects.",
+      "Audit this repository and disprove each finding."
+    ],
+    "logo": "./assets/logo.svg",
+    "screenshots": []
+  }
+}
